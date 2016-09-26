@@ -22,43 +22,69 @@ class ping(nomade):
         return self.state
 
 class ssh(nomade):
-    def dumpState(self, prefix = "."):
+    def dumpState(self, task, prefix = "."):
+        from pickle import dump
+        from os import mkdir
+        import inspect, nomade, shutil
         task.savedeps(prefix)
         mkdir("%s/state"%(prefix))
+
+        fname = inspect.getsourcefile(nomade)
+        shutil.copy2(fname, prefix)
+        
+
+        
+        
         with open("%s/state/task.pyc"%(prefix), "bw") as f:
             dump(task, f)
 
     def sendState(self, prefix, target):
-        rsync = ["rsync"
+        from subprocess import run
+        rsync = [ "rsync"
                 , "-a"
                 , "--delete"
-                , "%s"%(prefix)
-                , "%s:"%(target)]
-        run(rsync)
+                , "%s/"%(prefix)
+                , "%s:%s"%(target, prefix)]
+        s = run(rsync)
+        if s.returncode != 0:
+            raise IOError
+
 
     def remoteRun(self, prefix, target):
-        ssh = ["ssh", "%s"%(target), "cd nomade && python3 -m nomade task.pyc state.pyc"]
-        run(ssh)
+        from subprocess import run
+        ssh = ["ssh", 
+            "%s"%(target),
+            "cd '%s' && python3 -m nomade ./state/task.pyc ./state/state.pyc"%(prefix)]
+        s = run(ssh)
+        if s.returncode != 0:
+            raise IOError
+
     def getState(self, prefix, target):
-        rsync = ["rsync", "-a", "--delete", "%s:nomade/state.pyc"%(target), "."]
-        run(rsync)
+        from subprocess import run
+        rsync = ["rsync",
+                "-a",
+                "--delete",
+                "%s:%s/state/state.pyc"%(target,prefix),
+                "%s/state"%(prefix)]
+        s = run(rsync)
+        if s.returncode != 0:
+            raise IOError
 
     def restoreState(self, prefix):
-        with open('./state.pyc', 'br') as f:
+        from pickle import load
+        with open('%s/state/state.pyc'%(prefix), 'br') as f:
             res = load(f)
         return res
     
     def run(self):
-        from subprocess import run
         from pickle import dump, load
         from tempfile import mkdtemp
-        from os import mkdir
 
         target = self.state["target"]
         task = self.state["task"]
 
         prefix = mkdtemp()
-        self.dumpState(prefix)
+        self.dumpState(task, prefix)
 
         self.sendState(prefix, target)
         self.remoteRun(prefix, target)
